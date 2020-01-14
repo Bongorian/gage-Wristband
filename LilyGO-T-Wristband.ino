@@ -1,3 +1,8 @@
+#include "FS.h"
+#include "SPIFFS.h"
+#define FORMAT_SPIFFS_IF_FAILED true
+
+#include "fontxClass.h"
 
 #include <pcf8563.h>
 #include <TFT_eSPI.h> // Graphics and font library for ST7735 driver chip
@@ -5,11 +10,9 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>
 #include "sensor.h"
 #include "esp_adc_cal.h"
 #include "logo.h"
-#include "charge.h"
 
 //  git clone -b development https://github.com/tzapu/WiFiManager.git
 #include <WiFiManager.h> //https://github.com/tzapu/WiFiManager
@@ -37,6 +40,13 @@
 extern MPU9250 IMU;
 
 TFT_eSPI tft = TFT_eSPI(); // Invoke library, pins defined in User_Setup.h
+
+int graphVal = 1;
+int delta = 1;
+int grid = 0;
+int tcount = 0;
+
+fontxClass fx;
 PCF8563_Class rtc;
 WiFiManager wifiManager;
 WiFiManagerParameter scrapbox_id("scrapbox", "scrapbox_username", "bongorian", 20);
@@ -59,7 +69,37 @@ bool charge_indication = false;
 
 uint8_t hh, mm, ss;
 const char *name;
-const String endpoint = "https://scrapbox.io/api/pages/gage/";
+const String endpoint = {"https://scrapbox.io/api/pages/gage/"};
+String todos[5] = {"\0"};
+String todoslocal[5] = {"\0"};
+String oldtodoslocal[5] = {"\0"};
+
+void drawChar(uint8_t *glyph, uint8_t width, uint8_t height, uint32_t color)
+{
+    for (int j = 0; j < height; j++)
+    {
+        for (int i = 0; i < width; i++)
+        {
+            if (*glyph & (0b10000000 >> (i % 8)))
+            {
+                tft.drawPixel(i, j, color);
+            }
+            else
+            {
+                Serial.print(" ");
+            }
+            if (i % 8 == 7)
+            {
+                glyph++;
+            }
+        }
+        if (width % 8 != 0)
+        {
+            glyph++;
+        }
+        Serial.println("");
+    }
+}
 
 void configModeCallback(WiFiManager *myWiFiManager)
 {
@@ -72,6 +112,7 @@ void configModeCallback(WiFiManager *myWiFiManager)
     tft.drawString("Connect hotspot name ", 20, tft.height() / 2 - 20);
     tft.drawString("configure wrist", 35, tft.height() / 2 + 20);
     tft.setTextColor(TFT_GREEN);
+    tft.setTextSize(5);
     tft.drawString("\"gage\"", 40, tft.height() / 2);
 }
 
@@ -340,6 +381,7 @@ void setupRTC()
 void setup(void)
 {
     Serial.begin(115200);
+    SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED);
 
     tft.init();
     tft.setRotation(1);
@@ -388,6 +430,7 @@ void setup(void)
     {
         charge_indication = true;
     }
+    getTodo();
 }
 
 String getVoltage()
@@ -415,7 +458,7 @@ void RTC_Show()
             tft.print(__DATE__); // This uses the standard ADAFruit small font
         }
 
-        tft.setTextColor(TFT_BLUE, TFT_BLACK);
+        tft.setTextColor(TFT_GREEN, TFT_BLACK);
         tft.drawCentreString(getVoltage(), 120, 60, 1); // Next size up font 2
 
         // Update digital time
@@ -424,12 +467,12 @@ void RTC_Show()
         if (omm != mm)
         { // Only redraw every minute to minimise flicker
             // Uncomment ONE of the next 2 lines, using the ghost image demonstrates text overlay as time is drawn over it
-            tft.setTextColor(0x39C4, TFT_BLACK); // Leave a 7 segment ghost image, comment out next line!
+            tft.setTextColor(TFT_DARKGREY, TFT_BLACK); // Leave a 7 segment ghost image, comment out next line!
             //tft.setTextColor(TFT_BLACK, TFT_BLACK); // Set font colour to black to wipe image
             // Font 7 is to show a pseudo 7 segment display.
             // Font 7 only contains characters [space] 0 1 2 3 4 5 6 7 8 9 0 : .
             tft.drawString("88:88", xpos, ypos, 7); // Overwrite the text to clear it
-            tft.setTextColor(0xFBE0, TFT_BLACK);    // Orange
+            tft.setTextColor(TFT_GREEN, TFT_BLACK); // Orange
             omm = mm;
 
             if (hh < 10)
@@ -471,6 +514,82 @@ void IMU_Show()
     tft.drawString(buff, 0, 48);
     delay(200);
 }
+int split(String data, char delimiter, String *dst)
+{
+    int index = 0;
+    int arraySize = (sizeof(data) / sizeof((data)[0]));
+    int datalength = data.length();
+    for (int i = 0; i < datalength; i++)
+    {
+        char tmp = data.charAt(i);
+        if (tmp == delimiter)
+        {
+            index++;
+            if (index > (arraySize - 1))
+                return -1;
+        }
+        else
+            dst[index] += tmp;
+    }
+    return (index + 1);
+}
+void getTodo()
+{
+    //getする
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_PINK);
+    tft.drawString("be gaging...", 10, tft.height() / 2);
+    if ((WiFi.status() == WL_CONNECTED))
+    {
+
+        HTTPClient http;
+
+        http.begin(endpoint + "bongorian" + "/text"); //URLを指定
+        int httpCode = http.GET();                    //GETリクエストを送信
+
+        if (httpCode > 0)
+        {
+
+            String payload = http.getString();
+            Serial.println(httpCode);
+            String gage = payload;
+
+            int index = split(gage, '\n', todos);
+            for (int i = 0; i < index; i++)
+            {
+                Serial.println(todos[i]);
+                String s = "/todoX.txt";
+                s.replace("X", String(i));
+                if (SPIFFS.exists(s))
+                {
+                    SPIFFS.remove(s);
+                    Serial.print("SPIFFS Remove:");
+                    Serial.println(s);
+                }
+                File fw = SPIFFS.open(s, "w");
+                fw.println(todos[i]);
+                fw.close();
+                Serial.print("SPIFFS Write:");
+                Serial.println(s);
+                File fr = SPIFFS.open(s, "r");
+                todoslocal[i] = fr.readStringUntil('\n');
+                fr.close();
+                Serial.print("SPIFFS Read:");
+                Serial.println(todoslocal[i]);
+            }
+            todos[10] = {"\0"};
+        }
+
+        else
+        {
+            Serial.println("Error on HTTP request");
+            tft.fillScreen(TFT_BLACK);
+            tft.drawString("Error on Get gagedata", 20, tft.height() / 2);
+        }
+
+        http.end(); //リソースを解放
+    }
+}
 
 void loop()
 {
@@ -487,7 +606,7 @@ void loop()
         charge_indication = false;
         if (digitalRead(CHARGE_PIN) == LOW)
         {
-            tft.pushImage(140, 55, 34, 16, charge);
+            tft.fillRect(140, 55, 34, 16, TFT_PINK);
         }
         else
         {
@@ -503,7 +622,7 @@ void loop()
             targetTime = millis() + 1000;
             tft.fillScreen(TFT_BLACK);
             omm = 99;
-            func_select = func_select + 1 > 2 ? 0 : func_select + 1;
+            func_select = func_select + 1 > 4 ? 0 : func_select + 1;
             digitalWrite(LED_PIN, HIGH);
             delay(100);
             digitalWrite(LED_PIN, LOW);
@@ -515,59 +634,11 @@ void loop()
             //3秒長押し
             if (millis() - pressedTime > 3000)
             {
-                //getする
-                tft.fillScreen(TFT_BLACK);
-                tft.drawString("Get gagedata", 20, tft.height() / 2);
-                delay(3000);
-                if ((WiFi.status() == WL_CONNECTED))
-                {
-
-                    HTTPClient http;
-
-                    http.begin(endpoint + "bongorian"); //URLを指定
-                    int httpCode = http.GET();          //GETリクエストを送信
-
-                    if (httpCode > 0)
-                    { //返答がある場合
-
-                        String payload = http.getString(); //返答（JSON形式）を取得
-                        Serial.println(httpCode);
-                        // Serial.println(payload);
-
-                        //jsonオブジェクトの作成
-                        DynamicJsonBuffer jsonBuffer;
-                        String json = payload;
-                        JsonObject &gagedata = jsonBuffer.parseObject(json);
-
-                        //パースが成功したかどうかを確認
-                        if (!gagedata.success())
-                        {
-                            Serial.println("parseObject() failed");
-                            tft.fillScreen(TFT_BLACK);
-                            tft.drawString("parseObject() failed", 20, tft.height() / 2);
-                        }
-
-                        //各データを抜き出し
-                        const char todo1 = gagedata["descliptions"][0].as<char>();
-                        const char todo2 = gagedata["descliptions"][1].as<char>();
-                        const char todo3 = gagedata["descliptions"][2].as<char>();
-                        Serial.print("todo:");
-                        Serial.println(todo1);
-                        Serial.print("todo:");
-                        Serial.println(todo2);
-                        Serial.print("todo:");
-                        Serial.println(todo3);
-                    }
-
-                    else
-                    {
-                        Serial.println("Error on HTTP request");
-                        tft.fillScreen(TFT_BLACK);
-                        tft.drawString("Error on Get gagedata", 20, tft.height() / 2);
-                    }
-
-                    http.end(); //リソースを解放
-                }
+                //   getTodo();
+            }
+            //5秒長押し
+            if (millis() - pressedTime > 6000)
+            {
             }
             //10秒長押し
             if (millis() - pressedTime > 10000)
@@ -592,11 +663,52 @@ void loop()
         RTC_Show();
         break;
     case 1:
+    {
         //1回押し
-        IMU_Show();
+        if (oldtodoslocal[func_select] != todoslocal[func_select])
+        {
+            tft.fillScreen(TFT_BLACK);
+            oldtodoslocal[func_select] = todoslocal[func_select];
+        }
+        uint8_t glyphBuffer[32];
+        uint8_t width, height;
+        tft.setCursor(0, tft.height() / 2);
+        for (int i = 0; i < todoslocal[func_select].length(); i++)
+        {
+            fx.begin(&SPIFFS, "/ILGH16XB.FNT", "/ILGZ16XF.FNT");
+            fx.getGlyph(todoslocal[func_select].charAt(i), glyphBuffer);
+            drawChar(glyphBuffer, width, height, TFT_GREEN);
+            tft.setCursor(width, tft.height() / 2);
+        }
+        Serial.println(todoslocal[func_select]);
+        //tft.drawString(todoslocal[func_select], 20, tft.height() / 2);
         break;
+    }
     case 2:
+    {
         //2回押し
+        if (oldtodoslocal[func_select] != todoslocal[func_select])
+        {
+            tft.fillScreen(TFT_BLACK);
+            oldtodoslocal[func_select] = todoslocal[func_select];
+        }
+        Serial.println(todoslocal[func_select]);
+        tft.drawString(todoslocal[func_select], 20, tft.height() / 2);
+        break;
+    }
+    case 3:
+    {
+        //3回押し
+        if (oldtodoslocal[func_select] != todoslocal[func_select])
+        {
+            tft.fillScreen(TFT_BLACK);
+            oldtodoslocal[func_select] = todoslocal[func_select];
+        }
+        Serial.println(todoslocal[func_select]);
+        tft.drawString(todoslocal[func_select], 20, tft.height() / 2);
+        break;
+    }
+    case 4:
         tft.setTextColor(TFT_GREEN, TFT_BLACK);
         tft.setTextDatum(MC_DATUM);
         tft.drawString("Press again to wake up", tft.width() / 2, tft.height() / 2);
