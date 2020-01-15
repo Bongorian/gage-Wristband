@@ -668,20 +668,26 @@ void loop()
         if (oldtodoslocal[func_select] != todoslocal[func_select])
         {
             tft.fillScreen(TFT_BLACK);
+            tft.fillRect(0, 0, 160, 16, TFT_RED);
+            tft.setTextSize(2);
+            tft.setTextColor(TFT_WHITE);
+            tft.drawString("Highest", 0, 0);
             oldtodoslocal[func_select] = todoslocal[func_select];
         }
-        uint8_t glyphBuffer[32];
-        uint8_t width, height;
-        tft.setCursor(0, tft.height() / 2);
-        for (int i = 0; i < todoslocal[func_select].length(); i++)
-        {
-            fx.begin(&SPIFFS, "/ILGH16XB.FNT", "/ILGZ16XF.FNT");
-            fx.getGlyph(todoslocal[func_select].charAt(i), glyphBuffer);
-            drawChar(glyphBuffer, width, height, TFT_GREEN);
-            tft.setCursor(width, tft.height() / 2);
-        }
+        // uint8_t glyphBuffer[32];
+        // uint8_t width, height;
+        // tft.setCursor(0, tft.height() / 2);
+        // for (int i = 0; i < todoslocal[func_select].length(); i++)
+        // {
+        //     fx.begin(&SPIFFS, "/ILGH16XB.FNT", "/ILGZ16XF.FNT");
+        //     fx.getGlyph(todoslocal[func_select].charAt(i), glyphBuffer);
+        //     drawChar(glyphBuffer, width, height, TFT_GREEN);
+        //     tft.setCursor(width, tft.height() / 2);
+        // }
+        tft.setTextSize(2);
+        tft.setTextColor(TFT_PINK);
         Serial.println(todoslocal[func_select]);
-        //tft.drawString(todoslocal[func_select], 20, tft.height() / 2);
+        tft.drawString(todoslocal[func_select], 0, tft.height() / 2 - 8);
         break;
     }
     case 2:
@@ -691,9 +697,15 @@ void loop()
         {
             tft.fillScreen(TFT_BLACK);
             oldtodoslocal[func_select] = todoslocal[func_select];
+            tft.fillRect(0, 0, 160, 16, TFT_GREEN);
+            tft.setTextSize(2);
+            tft.setTextColor(TFT_WHITE);
+            tft.drawString("Normal", 0, 0);
         }
+        tft.setTextSize(2);
+        tft.setTextColor(TFT_GREEN);
         Serial.println(todoslocal[func_select]);
-        tft.drawString(todoslocal[func_select], 20, tft.height() / 2);
+        tft.drawString(todoslocal[func_select], 0, tft.height() / 2 - 8);
         break;
     }
     case 3:
@@ -703,15 +715,23 @@ void loop()
         {
             tft.fillScreen(TFT_BLACK);
             oldtodoslocal[func_select] = todoslocal[func_select];
+            tft.fillRect(0, 0, 160, 16, TFT_BLUE);
+            tft.setTextSize(2);
+            tft.setTextColor(TFT_WHITE);
+            tft.drawString("Lowest", 0, 0);
         }
+        tft.setTextSize(2);
+        tft.setTextColor(TFT_CYAN);
         Serial.println(todoslocal[func_select]);
-        tft.drawString(todoslocal[func_select], 20, tft.height() / 2);
+        tft.drawString(todoslocal[func_select], 0, tft.height() / 2 - 8);
         break;
     }
     case 4:
         tft.setTextColor(TFT_GREEN, TFT_BLACK);
         tft.setTextDatum(MC_DATUM);
+        tft.setTextSize(1);
         tft.drawString("Press again to wake up", tft.width() / 2, tft.height() / 2);
+        tft.drawString("ByeBye...", tft.width() / 2, tft.height() / 2 + 16);
         IMU.setSleepEnabled(true);
         Serial.println("Go to Sleep");
         delay(3000);
